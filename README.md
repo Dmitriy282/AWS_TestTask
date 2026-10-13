@@ -75,7 +75,7 @@ nginx is the only process that listens on public ports. The application servers 
 - **Key pair:** a new key pair; the private key was downloaded as a `.pem` file
 - **Security group:** see the next step
 
-![EC2 instance details](docs/img/01-ec2-instance.png)
+![EC2 instance details](images/01-ec2-instance.png)
 
 ### 2. Security group
 
@@ -91,7 +91,7 @@ Inbound rules:
 
 Outbound: all traffic allowed (default).
 
-![Security group inbound rules](docs/img/02-security-group.png)
+![Security group inbound rules](images/02-security-group.png)
 
 ### 3. Connect to the server
 
@@ -117,7 +117,7 @@ systemctl status nginx
 curl localhost
 ```
 
-![nginx status](docs/img/03-nginx-status.png)
+![nginx status](images/03-nginx-status.png)
 
 ### 5. Site 1 — PHP (port 80)
 
@@ -226,7 +226,7 @@ systemctl enable --now site2
 systemctl status site2
 ```
 
-![Application services status](docs/img/04-services-status.png)
+![Application services status](images/04-services-status.png)
 
 ### 8. nginx configuration
 
@@ -304,15 +304,15 @@ curl -s localhost:8000 | head -5
 curl -s localhost:8080 | head -5
 ```
 
-![Listening ports](docs/img/05-listening-ports.png)
+![Listening ports](images/05-listening-ports.png)
 
 Check from the browser — `http://<EC2_PUBLIC_IP>`, `:8000` and `:8080`:
 
-![Site 1 — PHP on port 80](docs/img/06-site-php-80.png)
+![Site 1 — PHP on port 80](images/06-site-php-80.png)
 
-![Site 2 — Flask on port 8000](docs/img/07-site-flask-8000.png)
+![Site 2 — Flask on port 8000](images/07-site-flask-8000.png)
 
-![Site 3 — Node.js on port 8080](docs/img/08-site-node-8080.png)
+![Site 3 — Node.js on port 8080](images/08-site-node-8080.png)
 
 ### 10. SSH key for GitHub / GitLab (in progress)
 
