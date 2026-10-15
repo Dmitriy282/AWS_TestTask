@@ -1,0 +1,91 @@
+# Create a new EC2 instance (security group + 20 GB disk) and deploy the stack on it.
+# Needs AWS credentials (`aws configure` or AWS_PROFILE) and boto3 on this machine.
+#   ansible-playbook ec2.yml -e ec2_key_name=<key pair name in AWS> -e ec2_private_key=~/.ssh/<key>.pem
+# Running it again is safe: the instance is found by its Name tag and reused.
+- name: Create the EC2 instance
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: us-east-1
+    ec2_name: aws-testtask-ansible
+    ec2_instance_type: t3.micro
+    ec2_volume_gb: 20   # the images take ~8 GB; the default 8 GB volume is not enough
+    # ssh_cidr: SSH is open only for this CIDR; default — the public IP of this machine
+
+  tasks:
+    - name: Check the required variables
+      ansible.builtin.assert:
+        that:
+          - ec2_key_name is defined
+          - ec2_private_key is defined
+        fail_msg: "Pass -e ec2_key_name=<key pair name in AWS> -e ec2_private_key=<path to the .pem file>"
+        quiet: true
+
+    - name: Find the public IP of this machine
+      ansible.builtin.uri:
+        url: https://checkip.amazonaws.com
+        return_content: true
+      register: my_ip
+      when: ssh_cidr is not defined
+
+    - name: Find the latest Ubuntu 24.04 AMI
+      amazon.aws.ec2_ami_info:
+        region: "{{ aws_region }}"
+        owners: ["099720109477"]   # Canonical
+        filters:
+          name: ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*
+          state: available
+      register: amis
+
+    - name: Create the security group
+      amazon.aws.ec2_security_group:
+        name: "{{ ec2_name }}"
+        description: AWS_TestTask - SSH and the three sites
+        region: "{{ aws_region }}"
+        rules:
+          - proto: tcp
+            ports: [22]
+            cidr_ip: "{{ ssh_cidr if ssh_cidr is defined else my_ip.content | trim ~ '/32' }}"
+            rule_desc: SSH
+          - proto: tcp
+            ports: [80, 443, 8000, 8080]
+            cidr_ip: 0.0.0.0/0
+            rule_desc: Sites
+      register: sg
+
+    - name: Create the instance
+      amazon.aws.ec2_instance:
+        name: "{{ ec2_name }}"
+        region: "{{ aws_region }}"
+        instance_type: "{{ ec2_instance_type }}"
+        image_id: "{{ (amis.images | sort(attribute='creation_date') | last).image_id }}"
+        key_name: "{{ ec2_key_name }}"
+        security_group: "{{ sg.group_id }}"
+        volumes:
+          - device_name: /dev/sda1
+            ebs:
+              volume_size: "{{ ec2_volume_gb }}"
+              volume_type: gp3
+              delete_on_termination: true
+        state: running
+        wait: true
+      register: ec2
+
+    - name: Add the instance to the inventory of this run
+      ansible.builtin.add_host:
+        name: "{{ ec2_name }}"
+        groups: ec2_new
+        ansible_host: "{{ ec2.instances[0].public_ip_address }}"
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: "{{ ec2_private_key }}"
+
+    - name: Show the instance
+      ansible.builtin.debug:
+        msg: "{{ ec2.instances[0].instance_id }} — http://{{ ec2.instances[0].public_ip_address }}"
+
+- name: Deploy the stack on the new instance
+  ansible.builtin.import_playbook: site.yml
+  vars:
+    deploy_hosts: ec2_new

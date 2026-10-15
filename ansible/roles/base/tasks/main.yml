@@ -1,0 +1,44 @@
+- name: Check whether Docker is already installed
+  ansible.builtin.stat:
+    path: /var/lib/docker
+  register: base_docker_dir
+
+- name: Check free disk space before the first install
+  vars:
+    root_mount: "{{ ansible_facts.mounts | selectattr('mount', 'equalto', '/') | first }}"
+  ansible.builtin.assert:
+    that: root_mount.size_available > min_free_disk_gb * 1024**3
+    fail_msg: >-
+      Only {{ (root_mount.size_available / 1024**3) | round(1) }} GB free on /, the images need about
+      {{ min_free_disk_gb }} GB. Increase the EBS volume (see README → Problems).
+    quiet: true
+  when: not base_docker_dir.stat.exists
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+    update_cache: true
+    cache_valid_time: 3600
+
+# ---------- swap ----------
+- name: Create and format the swap file
+  ansible.builtin.shell: fallocate -l {{ swap_size_mb }}M /swapfile && chmod 600 /swapfile && mkswap /swapfile
+  args:
+    creates: /swapfile
+
+- name: Check active swap
+  ansible.builtin.command: swapon --show=NAME --noheadings
+  register: base_active_swap
+  changed_when: false
+
+- name: Enable the swap file
+  ansible.builtin.command: swapon /swapfile
+  when: "'/swapfile' not in base_active_swap.stdout_lines"
+  changed_when: true
+
+- name: Keep swap after reboot
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    line: /swapfile none swap sw 0 0

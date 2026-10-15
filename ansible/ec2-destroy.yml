@@ -1,0 +1,26 @@
+# Terminate the instance created by ec2.yml and delete its security group. All data on it is lost.
+#   ansible-playbook ec2-destroy.yml
+- name: Destroy the EC2 instance
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aws_region: us-east-1
+    ec2_name: aws-testtask-ansible
+
+  tasks:
+    - name: Terminate the instance
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        filters:
+          tag:Name: "{{ ec2_name }}"
+          instance-state-name: [pending, running, stopping, stopped]
+        state: absent
+        wait: true
+
+    - name: Delete the security group
+      amazon.aws.ec2_security_group:
+        name: "{{ ec2_name }}"
+        region: "{{ aws_region }}"
+        state: absent

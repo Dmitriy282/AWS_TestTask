@@ -1,0 +1,25 @@
+# Configure an Ubuntu 24.04 server and start the whole stack.
+# Safe to run again: only what changed is applied.
+#   ansible-playbook site.yml
+- name: Deploy AWS_TestTask
+  hosts: "{{ deploy_hosts | default('app') }}"   # ec2.yml passes its new instance here
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Wait until the server accepts SSH
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+
+    - name: Wait for cloud-init to finish (a fresh instance runs apt on first boot)
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+  roles:
+    - base
+    - docker
+    - app
