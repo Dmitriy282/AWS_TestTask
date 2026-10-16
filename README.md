@@ -1,10 +1,15 @@
 # AWS_TestTask
 
-# AWS DevOps Lab — EC2, Docker Compose, Redis, Ansible
+# AWS DevOps Lab — EC2, Docker Compose, Redis, Terraform, Ansible
 
 Hands-on DevOps practice following my mentor's roadmap.
 
-Three web applications — PHP, Python (Flask) and Node.js (Express) — run in Docker containers on an AWS EC2 instance behind nginx. Each application has its own database (MySQL, PostgreSQL, MongoDB), and all three share one **Redis** that counts every hit. The whole server — from a bare Ubuntu instance to the running stack — is set up by **Ansible**.
+Three web applications — PHP, Python (Flask) and Node.js (Express) — run in Docker containers on an AWS EC2 instance behind nginx. Each application has its own database (MySQL, PostgreSQL, MongoDB), and all three share one **Redis** that counts every hit.
+
+The two tools have separate jobs:
+
+- **Terraform** creates the infrastructure on AWS — the security group and the EC2 instance.
+- **Ansible** configures a server that already exists — swap, Docker, the whole stack. The same playbook works on the EC2 instance and on a bare-metal server.
 
 > This README describes only the **current** setup. Earlier architectures (apps directly on the host with systemd; Docker deployed by hand) are in the [archive](archive/README.md).
 
@@ -15,6 +20,7 @@ Stage 3 (current):
 1. Add **Redis** shared between the applications. Every hit to any application increments a common counter in Redis; the counter has a **TTL of 3 days**.
 2. **Archive** the old architecture; the main page keeps only the current documentation.
 3. Prepare **Ansible** to bring up such a machine at any moment.
+4. Mentor's review: Ansible is for configuration, not for creating instances. The instance is created by **Terraform**; Ansible configures the whole stack — on AWS and on bare metal.
 
 Earlier stages: [Stage 1 — host](archive/stage1-host/README.md#task), [Stage 2 — Docker](archive/stage2-docker/README.md#task).
 
@@ -25,9 +31,11 @@ Earlier stages: [Stage 1 — host](archive/stage1-host/README.md#task), [Stage 2
 - [x] `/hits` page in every app shows the shared counters
 - [x] The sites keep working when Redis is down (the hit is just not counted)
 - [x] Stage 1 and Stage 2 docs and files moved to [archive/](archive/README.md)
-- [x] Ansible: `site.yml` configures any Ubuntu 24.04 server and starts the stack
-- [x] Ansible: `ec2.yml` creates a new EC2 instance and deploys on it; `ec2-destroy.yml` removes it
-- [ ] Deploy with Ansible to EC2 and add screenshots of `/hits` and `redis-cli`
+- [x] Ansible: `site.yml` configures any Ubuntu 24.04 / Debian 12 server (EC2 or bare metal) and starts the stack
+- [x] Terraform: creates the security group and the EC2 instance and writes the Ansible inventory for it
+- [x] Ansible no longer creates or deletes EC2 instances (`ec2.yml` / `ec2-destroy.yml` removed)
+- [ ] `terraform apply` + `ansible-playbook site.yml` on EC2, add screenshots of `/hits` and `redis-cli`
+- [ ] Run `site.yml` on a bare-metal server
 
 ## Architecture
 
@@ -144,36 +152,88 @@ docker compose exec redis redis-cli            # password comes from REDISCLI_AU
 127.0.0.1:6379> TTL hits:total
 ```
 
-## Deploy with Ansible
+## Deploy: Terraform + Ansible
 
-Everything that was done by hand in Stage 2 (swap, Docker, copying the project, `.env` with random passwords, `docker compose up`) is now in [ansible/](ansible/).
+```mermaid
+flowchart LR
+    tf["Terraform<br/>terraform/"] -->|"creates"| aws["AWS: security group<br/>+ EC2 instance"]
+    tf -->|"writes"| inv_aws["ansible/inventory/aws.ini"]
+    hand(["by hand"]) -->|"writes"| inv_bm["ansible/inventory/baremetal.ini"]
+    inv_aws --> ans["Ansible<br/>site.yml"]
+    inv_bm --> ans
+    ans -->|"configures"| ec2["EC2 instance"]
+    ans -->|"configures"| bm["bare-metal server"]
+```
+
+| Tool | Job | Does **not** do |
+|---|---|---|
+| Terraform | Creates, changes and deletes the AWS resources; keeps their state | Install software on the server |
+| Ansible | Configures an existing server: swap, Docker, the project, `.env`, `docker compose up` | Create or delete servers |
+
+So adding a bare-metal server is only a line in the inventory — Ansible does not care where the server comes from.
+
+### 1. Infrastructure on AWS — Terraform
 
 | File | Purpose |
 |---|---|
-| [ansible/site.yml](ansible/site.yml) | Configure a server from the inventory and start the stack |
-| [ansible/ec2.yml](ansible/ec2.yml) | Create a new EC2 instance (security group, 20 GB disk), then run `site.yml` on it |
-| [ansible/ec2-destroy.yml](ansible/ec2-destroy.yml) | Terminate that instance and delete its security group |
-| [ansible/group_vars/all.yml](ansible/group_vars/all.yml) | Settings: project path, swap size, ports, TTL |
-| [ansible/inventory.ini.example](ansible/inventory.ini.example) | Template for `inventory.ini` (server address and SSH key; `inventory.ini` is in `.gitignore`) |
-| [ansible/requirements.yml](ansible/requirements.yml) | Collections: `community.docker`, `amazon.aws` |
+| [terraform/main.tf](terraform/main.tf) | Ubuntu 24.04 AMI, security group, EC2 instance, the Ansible inventory file |
+| [terraform/variables.tf](terraform/variables.tf) | Region, instance type, disk size, key pair, SSH CIDR, open ports |
+| [terraform/outputs.tf](terraform/outputs.tf) | Instance ID, public IP, `ssh` command, URL |
+| [terraform/versions.tf](terraform/versions.tf) | Terraform ≥ 1.6, providers `aws` 6.x, `http`, `local` |
+| [terraform/terraform.tfvars.example](terraform/terraform.tfvars.example) | Template for `terraform.tfvars` (in `.gitignore`) |
 
-`site.yml` runs three roles:
+What `terraform apply` creates:
+
+1. the security group `aws-testtask`: 80, 443, 8000, 8080 for everyone, **22 only for the public IP of the machine that runs Terraform** (or `ssh_cidr`), all outbound traffic;
+2. a `t3.micro` from the latest Canonical Ubuntu 24.04 AMI with a 20 GB gp3 root volume (the default 8 GB is not enough for the images), IMDSv2 only. A newer AMI later does **not** replace the running instance (`ignore_changes = [ami]`);
+3. [ansible/inventory/aws.ini](ansible/inventory/) with the new instance in the `aws` group.
+
+Needs AWS credentials (`aws configure` or `AWS_PROFILE`) and an existing key pair in the region. Terraform works on Windows too, but the `.pem` path in `ssh_private_key` must be the path Ansible will use (WSL: `~/.ssh/<key>.pem`).
+
+```bash
+cd terraform
+cp terraform.tfvars.example terraform.tfvars   # key_name, ssh_private_key
+terraform init
+terraform plan
+terraform apply
+```
+
+The state (`terraform.tfstate`) is local and in `.gitignore` — it is needed to change or delete the instance later, do not lose it. If my IP changes, `terraform apply` again updates only the SSH rule. After a stop/start of the instance the public IP changes: `terraform apply -refresh-only` updates the outputs, `terraform apply` rewrites `aws.ini`.
+
+To remove everything (all data on the instance is lost; `aws.ini` is deleted too):
+
+```bash
+terraform destroy
+```
+
+### 2. Configuration — Ansible
+
+Everything that was done by hand in Stage 2 (swap, Docker, copying the project, `.env` with random passwords, `docker compose up`) is in [ansible/](ansible/).
+
+| File | Purpose |
+|---|---|
+| [ansible/site.yml](ansible/site.yml) | Configure every server of the `app` group and start the stack |
+| [ansible/inventory/](ansible/inventory/) | Ansible reads **every** file here: `aws.ini` (written by Terraform) and `baremetal.ini` (by hand, from [baremetal.ini.example](ansible/inventory/baremetal.ini.example)). Both put their hosts into the `app` group. The `.ini` files are in `.gitignore` |
+| [ansible/group_vars/all.yml](ansible/group_vars/all.yml) | Settings: project path, swap size, ports, TTL. Any of them can be overridden per host in the inventory |
+| [ansible/requirements.yml](ansible/requirements.yml) | Collection `community.docker` |
+
+`site.yml` waits for SSH and cloud-init (skipped on a server without cloud-init), checks that the OS is Ubuntu or Debian and runs three roles:
 
 | Role | What it does |
 |---|---|
-| [base](ansible/roles/base/tasks/main.yml) | Checks free disk space (before the first install), installs base packages, creates a 2 GB swap file and keeps it in `/etc/fstab` |
-| [docker](ansible/roles/docker/tasks/main.yml) | Docker Engine + Compose plugin from the official Docker repository, adds `ubuntu` to the `docker` group |
+| [base](ansible/roles/base/tasks/main.yml) | Checks free disk space (before the first install), installs base packages, creates a 2 GB swap file and keeps it in `/etc/fstab` (`swap_size_mb: 0` — no swap) |
+| [docker](ansible/roles/docker/tasks/main.yml) | Docker Engine + Compose plugin from the official Docker repository (Ubuntu or Debian), adds the SSH user to the `docker` group |
 | [app](ansible/roles/app/tasks/main.yml) | Copies the project to `~/AWS_TestTask`, creates `.env`, runs `docker compose up` (rebuilds the images only when the files changed), waits for the healthchecks and checks `/db` of every site |
 
-The playbooks are idempotent — running them again changes only what is different. **`.env` is never overwritten:** Ansible only adds variables that are missing, with a random 32-character password where needed. Existing passwords stay, because the database volumes are already initialised with them.
+The playbook is idempotent — running it again changes only what is different. **`.env` is never overwritten:** Ansible only adds variables that are missing, with a random 32-character password where needed. Existing passwords stay, because the database volumes are already initialised with them.
 
-### Control machine
+#### Control machine
 
 Ansible does not run on Windows — use WSL (Ubuntu) or Linux. Tested with `ansible-core` 2.21.
 
 ```bash
 python3 -m venv ~/.venvs/ansible
-~/.venvs/ansible/bin/pip install ansible-core boto3     # boto3 — only for ec2.yml
+~/.venvs/ansible/bin/pip install ansible-core
 source ~/.venvs/ansible/bin/activate
 
 cd ansible
@@ -185,34 +245,29 @@ Two WSL details when the repository is on the Windows drive (`/mnt/c/...`):
 - `/mnt/c` is world-writable, so Ansible **ignores** `ansible.cfg` there. Point to it explicitly: `export ANSIBLE_CONFIG=$PWD/ansible.cfg`.
 - SSH refuses a private key with `0777` permissions, and `chmod` does not work on `/mnt/c`. Copy the key into WSL: `cp <key>.pem ~/.ssh/ && chmod 400 ~/.ssh/<key>.pem`.
 
-### A. Existing server
+#### Run
 
 ```bash
-cp inventory.ini.example inventory.ini   # set ansible_host and the key path
+ansible-inventory --graph        # app → aws (from Terraform) + baremetal (by hand)
 ansible app -m ping
-ansible-playbook site.yml
+
+ansible-playbook site.yml                     # all servers
+ansible-playbook site.yml --limit aws         # only the EC2 instance
+ansible-playbook site.yml --limit baremetal   # only the bare-metal servers
 ```
 
-### B. New EC2 instance from scratch
+The last task prints the shared hit counter read through each server.
 
-Needs AWS credentials (`aws configure` or `AWS_PROFILE`) and an existing key pair in the region.
+#### Bare-metal server
+
+Any Ubuntu 24.04 / Debian 12 machine with SSH and a user with `sudo`:
 
 ```bash
-ansible-playbook ec2.yml -e ec2_key_name=<key pair name> -e ec2_private_key=~/.ssh/<key>.pem
+cp inventory/baremetal.ini.example inventory/baremetal.ini   # address, user, key
+ansible-playbook site.yml --limit baremetal
 ```
 
-`ec2.yml`:
-
-1. finds the latest Ubuntu 24.04 AMI from Canonical;
-2. creates the security group `aws-testtask-ansible`: 80, 443, 8000, 8080 for everyone, **22 only for the public IP of the machine that runs Ansible** (or `-e ssh_cidr=...`);
-3. starts a `t3.micro` with a 20 GB gp3 root volume (the default 8 GB is not enough for the images);
-4. waits for SSH and cloud-init and runs `site.yml` on it.
-
-The last task prints the counter read through the new server, and the instance ID and URL are shown above it. To remove everything (all data on the instance is lost):
-
-```bash
-ansible-playbook ec2-destroy.yml
-```
+Differences from EC2 are set per host in the inventory, e.g. `swap_size_mb=0` when the server has enough RAM, or `app_dir=/opt/AWS_TestTask`. There is no security group in front of a bare-metal server, so closing 8081/8082 and SSH is the job of the network firewall.
 
 ## Run locally
 
@@ -278,7 +333,7 @@ ORDER BY datname, pid;
 
 | Port | Source | Purpose |
 |---|---|---|
-| 22 | my IP (`ec2.yml` sets it automatically) | SSH |
+| 22 | my IP (Terraform sets it automatically) | SSH |
 | 80 | 0.0.0.0/0 | Site 1 — PHP |
 | 443 | 0.0.0.0/0 | HTTPS (reserved, TLS is not configured yet) |
 | 8000 | 0.0.0.0/0 | Site 2 — Flask |
@@ -302,7 +357,8 @@ The screenshot is of the manually created group, where SSH is still open to `0.0
 | [postgres/init/01-create-databases.sh](postgres/init/01-create-databases.sh) | Creates the extra PostgreSQL databases on the first start |
 | [pgadmin/servers.json](pgadmin/servers.json) | Pre-registers the PostgreSQL server in pgAdmin |
 | [.env.example](.env.example) | Template for `.env` |
-| [ansible/](ansible/) | Server setup and deployment — see [Deploy with Ansible](#deploy-with-ansible) |
+| [terraform/](terraform/) | AWS infrastructure: security group, EC2 instance — see [Deploy](#deploy-terraform--ansible) |
+| [ansible/](ansible/) | Server configuration and deployment (EC2 and bare metal) — see [Deploy](#deploy-terraform--ansible) |
 | [archive/](archive/README.md) | Earlier architectures, kept for history |
 
 The Python and Node.js images run as a non-root user.
@@ -324,7 +380,8 @@ The Python and Node.js images run as a non-root user.
 | MongoDB | 8 |
 | Redis | 7.4 (`redis:7.4-alpine`) |
 | phpMyAdmin / pgAdmin | 5.2 / 9 |
-| Ansible | ansible-core 2.21, `community.docker`, `amazon.aws` |
+| Terraform | ≥ 1.6, `hashicorp/aws` 6.x |
+| Ansible | ansible-core 2.21, `community.docker` |
 
 ## Problems and solutions
 
@@ -332,11 +389,11 @@ Problems from the earlier stages are in the [archive](archive/README.md); the on
 
 **1. Not enough disk space for the images**
 - *Cause:* the default 8 GB root volume. The images take about 8 GB on disk — Docker keeps both the compressed layers and the unpacked ones.
-- *Fix:* `ec2.yml` creates the instance with a 20 GB volume; the `base` role stops the run before the first Docker install if less than 10 GB is free. An existing volume can be resized in the AWS console (EC2 → Volumes → Modify volume), then `sudo growpart /dev/nvme0n1 1 && sudo resize2fs /dev/nvme0n1p1`.
+- *Fix:* Terraform creates the instance with a 20 GB volume (`volume_gb`); the `base` role stops the run before the first Docker install if less than 10 GB is free. To grow an existing volume — increase `volume_gb` and `terraform apply` (the volume is modified in place, the instance stays), then `sudo growpart /dev/nvme0n1 1 && sudo resize2fs /dev/nvme0n1p1`.
 
 **2. Not enough RAM on `t3.micro`**
 - *Cause:* 1 GB of RAM is not enough for MySQL, PostgreSQL, MongoDB and pgAdmin together — the OOM killer stops containers.
-- *Fix:* 2 GB swap file (the `base` role). The stack works, but it is slow; `t3.small` / `t3.medium` would be better (`-e ec2_instance_type=t3.small`).
+- *Fix:* 2 GB swap file (the `base` role). The stack works, but it is slow; `t3.small` / `t3.medium` would be better (`instance_type = "t3.small"` in `terraform.tfvars`, then `terraform apply` — the instance is stopped and started, the data stays, the public IP changes).
 
 **3. Node.js app not reachable from nginx**
 - *Cause:* inside a container `127.0.0.1` is the container's own loopback.
@@ -367,9 +424,9 @@ Problems from the earlier stages are in the [archive](archive/README.md); the on
   ```bash
   ssh -i <key>.pem -L 8082:localhost:8082 ubuntu@<EC2_PUBLIC_IP>   # then open http://localhost:8082
   ```
-- SSH: `ec2.yml` opens 22 only for the IP of the machine that runs Ansible. If the IP changes, run `ec2.yml` again — it updates the rule.
+- SSH: Terraform opens 22 only for the IP of the machine that runs Terraform. If the IP changes, run `terraform apply` again — it updates only that rule.
 - Port 443 is open, but TLS is not configured yet.
-- Private keys (`.pem`, CI key) and `ansible/inventory.ini` are never committed. The public IP and AWS account ID are hidden in this README and in the screenshots.
+- Private keys (`.pem`, CI key), `ansible/inventory/*.ini`, `terraform.tfvars` and the Terraform state are never committed. The public IP and AWS account ID are hidden in this README and in the screenshots.
 
 ## Next steps
 
@@ -379,7 +436,7 @@ Roadmap:
 2. CI/CD pipeline (GitHub Actions / GitLab CI) that runs the Ansible playbook with the dedicated SSH key
 3. ~~Containerization (Docker)~~ — done in Stage 2
 4. Load balancer
-5. Infrastructure as Code with Terraform (the EC2 part of `ec2.yml` is a first step)
+5. Infrastructure as Code with Terraform — started: security group + EC2. Next: remote state (S3), Elastic IP
 6. ~~Databases: PostgreSQL and MySQL~~ — done in Stage 2 (+ MongoDB)
 7. ~~Redis + configuration management with Ansible~~ — done in Stage 3
 

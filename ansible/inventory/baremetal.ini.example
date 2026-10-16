@@ -1,0 +1,13 @@
+# Your own servers (bare metal, VPS, a VM — any Ubuntu 24.04 / Debian 12 with SSH and sudo).
+#   cp baremetal.ini.example baremetal.ini
+# The AWS instance is not listed here: Terraform writes it to aws.ini in this directory.
+# Ansible reads every file in this directory, so `app` = the hosts of aws.ini + of this file.
+
+[baremetal]
+server1 ansible_host=<SERVER_IP> ansible_user=<user> ansible_ssh_private_key_file=~/.ssh/id_ed25519
+
+# Per-host settings, if the defaults from group_vars/all.yml do not fit, e.g.:
+# server1 ansible_host=... swap_size_mb=0 app_dir=/opt/AWS_TestTask
+
+[app:children]
+baremetal

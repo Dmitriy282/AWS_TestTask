@@ -5,4 +5,12 @@ __pycache__/
 venv/
 .venv/
 *.pem
-ansible/inventory.ini
+# Ansible inventory: aws.ini is written by Terraform, baremetal.ini by hand
+ansible/inventory/*.ini
+
+# Terraform (.terraform.lock.hcl is committed)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log

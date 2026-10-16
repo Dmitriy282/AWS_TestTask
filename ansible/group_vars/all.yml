@@ -11,7 +11,8 @@ app_sources:
   - postgres
   - pgadmin
 
-# t3.micro has 1 GB of RAM — not enough for three databases + pgAdmin without swap
+# t3.micro has 1 GB of RAM — not enough for three databases + pgAdmin without swap.
+# 0 — no swap file (set per host in the inventory, e.g. for a bare-metal server with enough RAM)
 swap_size_mb: 2048
 
 # The images take about 8 GB; checked only before the first Docker install

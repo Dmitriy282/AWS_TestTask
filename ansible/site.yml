@@ -1,8 +1,11 @@
-# Configure an Ubuntu 24.04 server and start the whole stack.
+# Configure the servers of the `app` group and start the whole stack.
+# The servers must already exist: an EC2 instance created by Terraform (../terraform) or your own bare-metal server.
 # Safe to run again: only what changed is applied.
-#   ansible-playbook site.yml
+#   ansible-playbook site.yml                    # all servers
+#   ansible-playbook site.yml --limit aws        # only the EC2 instance
+#   ansible-playbook site.yml --limit baremetal  # only your own servers
 - name: Deploy AWS_TestTask
-  hosts: "{{ deploy_hosts | default('app') }}"   # ec2.yml passes its new instance here
+  hosts: app
   become: true
   gather_facts: false
 
@@ -11,13 +14,19 @@
       ansible.builtin.wait_for_connection:
         timeout: 300
 
-    - name: Wait for cloud-init to finish (a fresh instance runs apt on first boot)
+    - name: Wait for cloud-init to finish (a fresh cloud instance runs apt on first boot; no-op without cloud-init)
       ansible.builtin.command: cloud-init status --wait
       changed_when: false
       failed_when: false
 
     - name: Gather facts
       ansible.builtin.setup:
+
+    - name: Check the OS
+      ansible.builtin.assert:
+        that: ansible_facts.distribution in ['Ubuntu', 'Debian']
+        fail_msg: "Only Ubuntu and Debian are supported, this is {{ ansible_facts.distribution }}"
+        quiet: true
 
   roles:
     - base

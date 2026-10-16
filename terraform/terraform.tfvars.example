@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars (it is in .gitignore): cp terraform.tfvars.example terraform.tfvars
+
+key_name        = "<key pair name in AWS>"
+ssh_private_key = "~/.ssh/<key>.pem"
+
+# Optional
+# aws_region    = "us-east-1"
+# instance_type = "t3.small"
+# volume_gb     = 20
+# ssh_cidr      = "203.0.113.10/32"   # default: the public IP of this machine
