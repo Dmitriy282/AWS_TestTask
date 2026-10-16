@@ -7,9 +7,14 @@ output "public_ip" {
 }
 
 output "ssh" {
-  value = "ssh -i ${var.ssh_private_key} ubuntu@${aws_instance.app.public_ip}"
+  description = "Works after ansible-playbook site.yml has written the key from Vault"
+  value       = "ssh -i ${var.ssh_key_file} ubuntu@${aws_instance.app.public_ip}"
 }
 
 output "url" {
   value = "http://${aws_instance.app.public_ip}"
+}
+
+output "vault_secrets" {
+  value = [for s in [vault_kv_secret_v2.ssh, vault_kv_secret_v2.ssh_public, vault_kv_secret_v2.app] : s.path]
 }

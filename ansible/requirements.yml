@@ -1,4 +1,7 @@
 # ansible-galaxy collection install -r requirements.yml
+# community.hashi_vault also needs the Python library on the control machine: pip install hvac
 collections:
-  - name: community.docker   # docker_compose_v2
+  - name: community.docker       # docker_compose_v2
     version: ">=4.0.0"
+  - name: community.hashi_vault  # vault_kv2_get — the secrets from Vault
+    version: ">=6.0.0"

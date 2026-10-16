@@ -1,25 +1,19 @@
-# Variables written to .env on the server. Only MISSING variables are added:
-# existing values (database passwords!) are never changed, because the data volumes keep the old ones.
+# Settings written to .env on the server. The passwords are not here:
+# they are read from Vault (vault_app_path) and added to these in templates/env.j2.
 app_env:
   # MySQL (PHP)
-  MYSQL_ROOT_PASSWORD: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
   MYSQL_DATABASE: app
   MYSQL_USER: app
-  MYSQL_PASSWORD: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
   # PostgreSQL (Python). pgadmin/servers.json expects POSTGRES_USER=app
   POSTGRES_DB: app
   POSTGRES_EXTRA_DATABASES: reports
   POSTGRES_USER: app
-  POSTGRES_PASSWORD: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
   # MongoDB (Node.js)
   MONGO_USER: app
-  MONGO_PASSWORD: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
   # Redis — shared hit counter
-  REDIS_PASSWORD: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
   HITS_TTL: "{{ hits_ttl }}"
   # pgAdmin login
   PGADMIN_EMAIL: "{{ pgadmin_email }}"
-  PGADMIN_PASSWORD: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
   # Published host ports
   PHP_PORT: "{{ php_port }}"
   PYTHON_PORT: "{{ python_port }}"

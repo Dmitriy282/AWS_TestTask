@@ -1,10 +1,10 @@
-# Copy to terraform.tfvars (it is in .gitignore): cp terraform.tfvars.example terraform.tfvars
+# Optional: everything has a default. Copy to terraform.tfvars (it is in .gitignore) only to change something.
+#   cp terraform.tfvars.example terraform.tfvars
 
-key_name        = "<key pair name in AWS>"
-ssh_private_key = "~/.ssh/<key>.pem"
-
-# Optional
-# aws_region    = "us-east-1"
-# instance_type = "t3.small"
-# volume_gb     = 20
-# ssh_cidr      = "203.0.113.10/32"   # default: the public IP of this machine
+# aws_region      = "us-east-1"
+# instance_type   = "t3.small"
+# volume_gb       = 20
+# ssh_cidr        = "203.0.113.10/32"           # default: the public IP of this machine
+# ssh_key_file    = "~/.ssh/aws-testtask.pem"   # where Ansible writes the private key from Vault
+# vault_addr      = "http://127.0.0.1:8200"
+# secrets_version = 2                           # new SSH key + new passwords (replaces the instance)

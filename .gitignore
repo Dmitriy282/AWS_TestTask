@@ -14,3 +14,7 @@ ansible/inventory/*.ini
 *.tfstate.*
 *.tfvars
 crash.log
+
+# Vault: unseal key, root token and the project token (written by vault/bootstrap.sh)
+vault/.vault-init.json
+vault/.vault-token

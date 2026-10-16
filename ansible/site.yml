@@ -1,5 +1,6 @@
 # Configure the servers of the `app` group and start the whole stack.
 # The servers must already exist: an EC2 instance created by Terraform (../terraform) or your own bare-metal server.
+# The secrets (SSH key of the EC2 instance, passwords) are read from Vault: VAULT_ADDR and VAULT_TOKEN must be set.
 # Safe to run again: only what changed is applied.
 #   ansible-playbook site.yml                    # all servers
 #   ansible-playbook site.yml --limit aws        # only the EC2 instance
@@ -8,8 +9,44 @@
   hosts: app
   become: true
   gather_facts: false
+  vars:
+    # Terraform writes the key path to inventory/aws.ini (ssh_key_file); the key itself is only in Vault
+    aws_key_files: >-
+      {{ ansible_play_hosts_all | intersect(groups['aws'] | default([]))
+         | map('extract', hostvars, 'ansible_ssh_private_key_file') | unique }}
 
   pre_tasks:
+    - name: Check the Vault token
+      ansible.builtin.assert:
+        that: lookup('ansible.builtin.env', 'VAULT_TOKEN') | length > 0
+        fail_msg: "VAULT_TOKEN is not set: export VAULT_TOKEN=$(cat ../vault/.vault-token) (see vault/bootstrap.sh)"
+        quiet: true
+      run_once: true
+
+    # On the machine that runs Ansible, before the first SSH connection
+    - name: Write the SSH key of the EC2 instance from Vault
+      delegate_to: localhost
+      become: false
+      run_once: true
+      when: aws_key_files | length > 0
+      block:
+        - name: Create the directory of the key
+          ansible.builtin.file:
+            path: "{{ item | dirname }}"
+            state: directory
+            mode: "0700"
+          loop: "{{ aws_key_files }}"
+
+        - name: Write the private key
+          vars:
+            ssh_secret: "{{ lookup('community.hashi_vault.vault_kv2_get', vault_ssh_path, engine_mount_point=vault_mount, url=vault_addr).secret }}"
+          ansible.builtin.copy:
+            content: "{{ ssh_secret.private_key | trim }}\n"
+            dest: "{{ item }}"
+            mode: "0600"
+          loop: "{{ aws_key_files }}"
+          no_log: true
+
     - name: Wait until the server accepts SSH
       ansible.builtin.wait_for_connection:
         timeout: 300

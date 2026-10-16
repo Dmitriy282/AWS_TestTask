@@ -27,5 +27,11 @@ pgadmin_port: 8082
 
 pgadmin_email: admin@example.com
 
+# Vault with the secrets, written by Terraform (../terraform/vault.tf). The token comes from VAULT_TOKEN
+vault_addr: "{{ lookup('ansible.builtin.env', 'VAULT_ADDR') | default('http://127.0.0.1:8200', true) }}"
+vault_mount: secret
+vault_ssh_path: aws-testtask/ssh   # SSH key of the EC2 instance
+vault_app_path: aws-testtask/app   # passwords of the stack
+
 # Hit counter TTL in seconds (3 days)
 hits_ttl: 259200

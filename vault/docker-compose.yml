@@ -1,0 +1,19 @@
+# Vault for the secrets of the project: the SSH key of the EC2 instance and the passwords of the stack.
+# Runs on the machine that runs Terraform and Ansible, NOT on the EC2 instance.
+#   docker compose -f vault/docker-compose.yml up -d
+#   vault/bootstrap.sh            # init (first time) / unseal (after every restart)
+name: aws-testtask-vault
+
+services:
+  vault:
+    image: hashicorp/vault:2.2
+    command: server               # reads /vault/config/vault.hcl
+    ports:
+      - "127.0.0.1:8200:8200"     # only from this machine
+    volumes:
+      - ./config:/vault/config:ro
+      - vault_data:/vault/file    # the encrypted storage — survives `docker compose down`
+    restart: unless-stopped
+
+volumes:
+  vault_data:
